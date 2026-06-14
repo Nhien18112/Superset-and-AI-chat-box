@@ -1,0 +1,49 @@
+<div class="login-wrapper">
+  <div class="login-background"></div>
+  <div class="login-glass-panel">
+    
+    <div class="login-header">
+      <div class="logo-mark">VDT</div>
+      <h1 class="logo-type">Data Platform</h1>
+      <p class="logo-sub">Secure Market Intelligence</p>
+    </div>
+    
+    <div class="form-container">
+      <div class="input-group">
+        <label for="username">Identity Context</label>
+        <input 
+          type="text" 
+          id="username" 
+          [(ngModel)]="username" 
+          placeholder="investor_a or broker_1"
+          autocomplete="off">
+      </div>
+      
+      <div class="input-group">
+        <label for="password">Passkey</label>
+        <input 
+          type="password" 
+          id="password" 
+          [(ngModel)]="password" 
+          placeholder="••••••••"
+          (keyup.enter)="login()"
+          autocomplete="off">
+      </div>
+      
+      <div class="error-state" *ngIf="errorMessage" [class.show]="errorMessage">
+        {{ errorMessage }}
+      </div>
+      
+      <button class="auth-btn" (click)="login()" [disabled]="isLoading" [class.loading]="isLoading">
+        <span class="btn-text" *ngIf="!isLoading">Authenticate</span>
+        <span class="btn-text" *ngIf="isLoading">Authenticating</span>
+        <div class="loader" *ngIf="isLoading"></div>
+      </button>
+    </div>
+    
+    <div class="auth-hint">
+      Authorized access only. Secure connection established.
+    </div>
+
+  </div>
+</div>

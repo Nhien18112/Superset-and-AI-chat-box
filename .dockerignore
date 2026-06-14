@@ -1,0 +1,16 @@
+# Docker build ignore list
+node_modules
+**/node_modules
+backend/target
+**/target
+.angular
+**/.angular
+dist
+**/dist
+.git
+**/.git
+.idea
+**/.idea
+.vscode
+**/.vscode
+*.log

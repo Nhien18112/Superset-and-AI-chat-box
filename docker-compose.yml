@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. DATABASE TẬP TRUNG (POSTGRESQL)
+  # Lưu trữ cả Data Chứng khoán, Data Lịch sử Chat, và Metadata của Superset
+  # ==========================================
+  postgres:
+    image: postgres:15
+    container_name: vdt_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: vdt_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      # Mount thư mục db-init vào container để tự động chạy file SQL khi DB mới khởi tạo
+      - ./db-init:/docker-entrypoint-initdb.d 
+
+  # ==========================================
+  # 2. REDIS CACHE (Bắt buộc cho Superset)
+  # Giúp Superset tải Dashboard và Chart nhanh hơn
+  # ==========================================
+  redis:
+    image: redis:7
+    container_name: vdt_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # ==========================================
+  # 3. APACHE SUPERSET (Lõi Data Platform & RLS)
+  # ==========================================
+  superset:
+    image: apache/superset:latest
+    container_name: vdt_superset
+    user: root
+    restart: always
+    environment:
+      SUPERSET_SECRET_KEY: "vdt_super_secret_key_2026_do_not_share"
+      SQLALCHEMY_DATABASE_URI: "postgresql://admin:adminpassword@postgres:5432/vdt_db"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8088:8088"
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - ./superset_config.py:/app/pythonpath/superset_config.py
+    # Chạy Gunicorn server cho Superset
+    command: ["/bin/sh", "-c", "pip install psycopg2-binary --target=/app/.venv/lib/python3.10/site-packages && gunicorn -w 2 --timeout 120 -b 0.0.0.0:8088 --limit-request-line 0 --limit-request-field_size 0 'superset.app:create_app()'"]
+
+  # ==========================================
+  # 4. SUPERSET INIT (Chạy 1 lần để cài đặt)
+  # Tự động tạo bảng nội bộ cho Superset và cấp tài khoản Admin
+  # ==========================================
+  superset-init:
+    image: apache/superset:latest
+    container_name: vdt_superset_init
+    user: root
+    environment:
+      SUPERSET_SECRET_KEY: "vdt_super_secret_key_2026_do_not_share"
+      SQLALCHEMY_DATABASE_URI: "postgresql://admin:adminpassword@postgres:5432/vdt_db"
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - ./superset_config.py:/app/pythonpath/superset_config.py
+    command: >
+      /bin/sh -c "
+      pip install psycopg2-binary --target=/app/.venv/lib/python3.10/site-packages &&
+      echo 'Đang thiết lập database cho Superset...' &&
+      superset db upgrade &&
+      echo 'Đang tạo tài khoản Admin Superset...' &&
+      superset fab create-admin --username admin --firstname VDT --lastname Admin --email admin@vdt.com --password admin &&
+      echo 'Đang khởi tạo Roles...' &&
+      superset init &&
+      echo 'Hoàn tất khởi tạo Superset!'
+      "
+
+  # ==========================================
+  # 4.5 FASTAPI AUTOMATION WORKER
+  # ==========================================
+  python-worker:
+    build: ./python-workers
+    container_name: vdt_python_workers
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPERSET_URL=http://superset:8088
+      - SUPERSET_USERNAME=admin
+      - SUPERSET_PASSWORD=admin
+    depends_on:
+      superset:
+        condition: service_started
+
+  # ==========================================
+  # 5. SPRING BOOT BACKEND (Controller, AI Agent, Superset API)
+  # ==========================================
+  backend:
+    build: ./backend  # Trỏ tới thư mục chứa code và Dockerfile của Spring Boot
+    container_name: vdt_backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      # Kết nối nội bộ với DB
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/vdt_db
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: adminpassword
+      # Lấy API Key từ file .env
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      # URL để Backend gọi Superset xử lý RLS
+      SUPERSET_URL: http://superset:8088 
+    depends_on:
+      postgres:
+        condition: service_started
+
+  # ==========================================
+  # 6. ANGULAR FRONTEND (Giao diện Chatbot & Chart)
+  # ==========================================
+  frontend:
+    build: ./frontend # Trỏ tới thư mục chứa code và Dockerfile của Angular
+    container_name: vdt_frontend
+    restart: always
+    ports:
+      - "4200:80" # Map cổng 4200 trên máy host vào cổng 80 (Nginx) của container
+    depends_on:
+      - backend
+
+volumes:
+  pg_data: # Volume lưu trữ dữ liệu database vĩnh viễn dù có xóa container

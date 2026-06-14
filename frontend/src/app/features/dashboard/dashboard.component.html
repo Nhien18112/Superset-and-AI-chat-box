@@ -1,0 +1,72 @@
+<div class="app-layout">
+  <!-- Top Bar -->
+  <header class="top-bar">
+    <div class="context-panel">
+      <div class="brand-group">
+        <h1>VDT Data Platform</h1>
+        <div class="brand-subtitle">Secure Market Intelligence</div>
+      </div>
+      <div class="context-controls">
+        <div class="context-group">
+          <label>Session active</label>
+          <span>{{ username }}</span>
+        </div>
+        <button class="logout-btn" (click)="logout()">Terminate</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Workspace -->
+  <div class="workspace">
+    <!-- Main Dashboard Panel -->
+    <main class="main-dashboard-panel">
+      <div class="dashboard-container">
+        <div class="dashboard-mount" id="dashboard-mount-point">
+          <!-- Animation overlay while loading -->
+          <div class="secure-loader-overlay" id="loading-overlay">
+            <div class="radar-spinner"></div>
+            <div class="loader-text">
+              <span class="loader-status">Establishing Secure Connection...</span>
+              <span class="loader-sub">Decrypting Dashboard Payload</span>
+            </div>
+          </div>
+          <!-- Superset iframe will be embedded here -->
+        </div>
+      </div>
+    </main>
+
+    <!-- Side Chat Panel -->
+    <aside class="side-chat-panel">
+      <div class="chatbot-container">
+        <div class="chat-header">
+          <div class="chat-title">Secure Terminal</div>
+          <div class="chat-subtitle">Data Agent // Powered by Groq LLM</div>
+        </div>
+        
+        <div class="chat-history" #chatScroll>
+          <div *ngFor="let msg of messages" class="chat-message" [ngClass]="msg.isUser ? 'user' : 'agent'">
+            <div class="msg-bubble">
+              {{ msg.text }}
+            </div>
+          </div>
+          <div *ngIf="isChatLoading" class="chat-message agent loading">
+            <div class="msg-bubble loading">
+              Awaiting query resolution<span class="cursor-blink"></span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="chat-input-area">
+          <div class="chat-input-wrapper">
+            <span class="chat-input-prefix">{{ username }}&#64;vdt-secure ~$</span>
+            <input type="text" class="chat-input" placeholder="Execute data query..." 
+                   [(ngModel)]="chatQuery" (keyup.enter)="sendChat()" />
+          </div>
+          <button class="chat-send-btn" (click)="sendChat()" [disabled]="isChatLoading || !chatQuery.trim()">
+            Execute
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>

@@ -1,0 +1,44 @@
+# IDEs and Editors
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+
+# Java / Spring Boot / Maven
+backend/target/
+target/
+*.class
+*.jar
+*.war
+*.log
+
+# Node / Angular (Frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+node_modules/
+dist/
+
+# Python
+python-workers/__pycache__/
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
