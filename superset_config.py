@@ -6,6 +6,8 @@ SQLALCHEMY_DATABASE_URI = "postgresql://admin:adminpassword@postgres:5432/vdt_db
 # Secret Key
 SUPERSET_SECRET_KEY = "vdt_super_secret_key_2026_do_not_share"
 SECRET_KEY = SUPERSET_SECRET_KEY
+GUEST_TOKEN_JWT_SECRET = "guest_token_super_secret_key_2026_do_not_share"
+GUEST_TOKEN_JWT_AUDIENCE = lambda: "vdt-data-platform"
 
 # Redis Cache Config
 CACHE_CONFIG = {
@@ -22,7 +24,7 @@ CORS_OPTIONS = {
     'supports_credentials': True,
     'allow_headers': ['*'],
     'resources':['*'],
-    'origins': ['*']
+    'origins': ['http://localhost:4200', 'http://127.0.0.1:4200']
 }
 
 WTF_CSRF_ENABLED = False
@@ -30,5 +32,7 @@ FEATURE_FLAGS = {
     "EMBEDDED_SUPERSET": True
 }
 TALISMAN_ENABLED = False
-SESSION_COOKIE_SAMESITE = None
-GUEST_ROLE_NAME = "Public"
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_HTTPONLY = False
+GUEST_ROLE_NAME = "Gamma"

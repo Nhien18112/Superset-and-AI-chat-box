@@ -168,7 +168,10 @@ CREATE TABLE users (
 
 INSERT INTO users (username, password, role) VALUES
 ('investor_a', '{noop}password123', 'ROLE_INVESTOR'),
-('broker_1', '{noop}admin123', 'ROLE_BROKER');
+('investor_b', '{noop}password123', 'ROLE_INVESTOR'),
+('investor_c', '{noop}password123', 'ROLE_INVESTOR'),
+('broker_1', '{noop}admin123', 'ROLE_BROKER'),
+('broker_2', '{noop}admin123', 'ROLE_BROKER');
 
 -- Chat Persistence Tables
 CREATE TABLE chat_sessions (

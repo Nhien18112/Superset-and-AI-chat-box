@@ -60,6 +60,8 @@ export class DashboardComponent implements OnInit, AfterViewInit {
         const mountPoint = document.getElementById('dashboard-mount-point');
         if (mountPoint && dashboardId) {
             mountPoint.innerHTML = '';
+            // Clear the Superset session cookie to prevent conflict with the Guest Token on refresh
+            document.cookie = "session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
             embedDashboard({
                 id: dashboardId,
                 supersetDomain: environment.SUPERSET_DOMAIN,

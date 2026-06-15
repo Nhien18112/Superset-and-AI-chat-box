@@ -19,19 +19,29 @@ public class SupersetController {
     @Autowired
     private SupersetService supersetService;
 
+    @Autowired
+    private com.vdt.dataplatform.repository.UserRepository userRepository;
+
     @GetMapping("/guest-token")
     public ResponseEntity<?> getGuestToken() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         String username;
         
         if (principal instanceof UserDetails) {
-            username = ((UserDetails) principal).getUsername();
+            UserDetails userDetails = (UserDetails) principal;
+            username = userDetails.getUsername();
         } else {
             username = principal.toString();
         }
 
+        String role = "";
+        com.vdt.dataplatform.model.User dbUser = userRepository.findByUsername(username).orElse(null);
+        if (dbUser != null) {
+            role = dbUser.getRole();
+        }
+
         try {
-            String guestToken = supersetService.getGuestToken(username);
+            String guestToken = supersetService.getGuestToken(username, role);
             Map<String, String> response = new HashMap<>();
             response.put("token", guestToken);
             response.put("dashboardId", supersetService.getDashboardUuid());

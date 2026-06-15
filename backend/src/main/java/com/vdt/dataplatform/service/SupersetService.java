@@ -27,6 +27,7 @@ public class SupersetService {
     private String automationWorkerUrl;
 
     private String cachedDashboardUuid = null;
+    private Integer cachedDatasetId = null;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -75,6 +76,7 @@ public class SupersetService {
             ResponseEntity<Map> response = restTemplate.postForEntity(createDashboardUrl, request, Map.class);
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 cachedDashboardUuid = (String) response.getBody().get("dashboard_uuid");
+                cachedDatasetId = (Integer) response.getBody().get("dataset_id");
                 logger.info("Successfully fetched embedded dashboard UUID from worker: {}", cachedDashboardUuid);
                 return cachedDashboardUuid;
             }
@@ -85,7 +87,7 @@ public class SupersetService {
         throw new RuntimeException("Failed to retrieve dashboard UUID from worker");
     }
 
-    public String getGuestToken(String targetUsername) {
+    public String getGuestToken(String targetUsername, String role) {
         String adminToken = getAdminAccessToken();
         String guestTokenUrl = supersetUrl + "/api/v1/security/guest_token/";
 
@@ -109,16 +111,18 @@ public class SupersetService {
         resources.add(resource);
         payload.put("resources", resources);
 
-        // Add RLS configuration if necessary, depending on the implementation details.
-        // For Superset Embedded, RLS rules can be passed in the token itself if the feature flag is enabled.
         List<Map<String, Object>> rls = new ArrayList<>();
-        // In this implementation, we simply specify an RLS filter rule based on the username
-        // So that the frontend embedded iframe only shows data for this specific user.
-        // This prevents the user from modifying the frontend code to see other people's data.
-        // We'll leave the actual clause blank or generic unless a specific schema requires it.
-        // The instructions state: The Guest Token payload MUST securely embed the extracted User ID
         Map<String, Object> rlsRule = new HashMap<>();
-        rlsRule.put("clause", "user_id = '" + targetUsername + "'");
+        rlsRule.put("dataset", cachedDatasetId);
+        
+        String rlsClause;
+        if ("ROLE_BROKER".equals(role)) {
+            rlsClause = "investor_id IN (SELECT investor_id FROM dim_investors WHERE broker_id = '" + targetUsername + "')";
+        } else {
+            rlsClause = "investor_id = '" + targetUsername + "'";
+        }
+        rlsRule.put("clause", rlsClause);
+        
         rls.add(rlsRule);
         payload.put("rls", rls); 
 

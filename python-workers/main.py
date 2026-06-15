@@ -277,7 +277,7 @@ def create_dashboard_endpoint(request: DashboardRequest):
             logger.warning(f"Failed to link chart {cid} to dashboard {dashboard_id}: {res.text}")
 
     # 6. Enable Embedding and Retrieve UUID
-    embed_res = client.session.post(f"{SUPERSET_URL}/api/v1/dashboard/{dashboard_id}/embedded", json={"allowed_domains": ["*"]})
+    embed_res = client.session.post(f"{SUPERSET_URL}/api/v1/dashboard/{dashboard_id}/embedded", json={"allowed_domains": []})
     if embed_res.status_code != 200:
         logger.error(f"Failed to enable embedding for dashboard {dashboard_id}: {embed_res.text}")
         raise HTTPException(status_code=500, detail="Failed to enable dashboard embedding")
@@ -288,6 +288,7 @@ def create_dashboard_endpoint(request: DashboardRequest):
         "status": "success",
         "dashboard_id": dashboard_id,
         "dashboard_uuid": embedded_uuid,
+        "dataset_id": dataset_id,
         "message": f"Dashboard '{request.dashboard_title}' created successfully with 3 charts."
     }
 
