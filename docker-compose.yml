@@ -119,6 +119,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: adminpassword
       # Lấy API Key từ file .env
       GROQ_API_KEY: ${GROQ_API_KEY}
+      CODEX_API_KEY: ${CODEX_API_KEY}
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
       # URL để Backend gọi Superset xử lý RLS
       SUPERSET_URL: http://superset:8088 

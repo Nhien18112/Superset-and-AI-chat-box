@@ -311,6 +311,111 @@ def create_dashboard_endpoint(request: DashboardRequest):
         "message": f"Dashboard '{request.dashboard_title}' created successfully with native RLS."
     }
 
+class ChatRequest(BaseModel):
+    query: str
+    username: str
+    history: list = []
+
+@app.post("/api/chat")
+async def chat_endpoint(request: ChatRequest):
+    """
+    Acts as the MCP Client. Connects to the local mcp_server.py via stdio,
+    retrieves tools, and uses OpenAI (Codex replacement) to process the query.
+    """
+    import os
+    import json
+    from openai import AsyncOpenAI
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    
+    api_key = os.getenv("CODEX_API_KEY")
+    if not api_key:
+        return {"reply": "Error: CODEX_API_KEY is not configured in .env."}
+        
+    client = AsyncOpenAI(api_key=api_key)
+    
+    server_params = StdioServerParameters(
+        command="python",
+        args=["mcp_server.py"],
+        env=os.environ.copy()
+    )
+    
+    try:
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                
+                # Retrieve tools from MCP Server
+                mcp_tools = await session.list_tools()
+                
+                # Convert to OpenAI tool format
+                openai_tools = []
+                for t in mcp_tools.tools:
+                    openai_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.inputSchema
+                        }
+                    })
+                
+                messages = [
+                    {"role": "system", "content": f"You are a helpful Data Agent. The current user is {request.username}. Use tools to answer questions or create charts. Do NOT guess column names; always get the schema first."}
+                ]
+                
+                for msg in request.history:
+                    role = "user" if msg.get("isUser") else "assistant"
+                    messages.append({"role": role, "content": msg.get("text", "")})
+                    
+                messages.append({"role": "user", "content": request.query})
+                
+                # First OpenAI call
+                response = await client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=messages,
+                    tools=openai_tools if openai_tools else None
+                )
+                
+                response_message = response.choices[0].message
+                messages.append(response_message)
+                
+                # Process tool calls
+                if response_message.tool_calls:
+                    for tool_call in response_message.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_args = json.loads(tool_call.function.arguments)
+                        
+                        # Inject username automatically for create_superset_chart if not provided
+                        if tool_name == "create_superset_chart" and "username" not in tool_args:
+                            tool_args["username"] = request.username
+                            
+                        # Execute tool on MCP Server
+                        tool_result = await session.call_tool(tool_name, tool_args)
+                        
+                        # Assuming tool_result.content[0].text is the string result
+                        result_text = tool_result.content[0].text if tool_result.content else "Success"
+                        
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": result_text
+                        })
+                        
+                    # Second OpenAI call to synthesize tool results
+                    final_response = await client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=messages
+                    )
+                    return {"reply": final_response.choices[0].message.content}
+                
+                return {"reply": response_message.content}
+                
+    except Exception as e:
+        logger.error(f"MCP Chat Error: {e}")
+        return {"reply": f"Error executing Data Agent: {str(e)}"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

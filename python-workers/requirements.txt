@@ -2,3 +2,6 @@ fastapi
 uvicorn
 pydantic
 requests
+mcp[cli]
+openai
+httpx
