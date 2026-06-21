@@ -37,18 +37,21 @@ TALISMAN_ENABLED = False
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False
 SESSION_COOKIE_HTTPONLY = False
+HTTP_HEADERS = {'X-Frame-Options': 'ALLOWALL'}
 GUEST_ROLE_NAME = "Gamma"
 
 # SSO Integration
 from superset.security import SupersetSecurityManager
-from flask_appbuilder.security.views import AuthView
+from flask_appbuilder.security.views import AuthDBView
 from flask_appbuilder import expose
 from flask import request, redirect, session
 from flask_login import login_user
 
-class CustomAuthView(AuthView):
+class CustomAuthView(AuthDBView):
+    route_base = '/login'
+    
     @expose('/custom')
-    def login(self):
+    def login_custom(self):
         token = request.args.get('token')
         if not token:
             return redirect(self.appbuilder.get_url_for_login)
@@ -64,7 +67,7 @@ class CustomAuthView(AuthView):
                 # Using a random password to prevent local login
                 import uuid
                 user = self.appbuilder.sm.add_user(
-                    username, "User", username, f"{username}@vdt.com", gamma_role, str(uuid.uuid4())
+                    username, "User", username, f"{username}@vdt.com", [gamma_role], str(uuid.uuid4())
                 )
             
             login_user(user)
@@ -77,7 +80,7 @@ class CustomAuthView(AuthView):
             return f"Login failed: {str(e)}", 401
 
 class CustomSecurityManager(SupersetSecurityManager):
-    authview = CustomAuthView
+    authdbview = CustomAuthView
     
     def __init__(self, appbuilder):
         super(CustomSecurityManager, self).__init__(appbuilder)

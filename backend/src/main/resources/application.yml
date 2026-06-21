@@ -21,10 +21,8 @@ superset:
   secret-key: ${SUPERSET_SECRET_KEY:vdt_super_secret_key_2026_do_not_share}
   automation-worker-url: ${AUTOMATION_WORKER_URL:http://python-worker:8000}
 
-codex:
-  api:
-    url: "https://api.openai.com/v1/chat/completions"
-    key: ${CODEX_API_KEY:your-key}
+  gemini:
+    key: ${GEMINI_API_KEY:your-key}
 
 jwt:
   secret: ${JWT_SECRET_KEY:ThisIsASecretKeyForJWTAuthenticationInVDTDataPlatformMustBeAtLeast32BytesLong}

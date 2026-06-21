@@ -317,103 +317,103 @@ class ChatRequest(BaseModel):
     history: list = []
 
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest):
+def chat_endpoint(request: ChatRequest):
     """
-    Acts as the MCP Client. Connects to the local mcp_server.py via stdio,
-    retrieves tools, and uses OpenAI (Codex replacement) to process the query.
+    Connects to Gemini 1.5 Pro, binds tools from mcp_superset.py,
+    and executes tool calls locally to fetch data or create charts in Superset.
     """
     import os
     import json
-    from openai import AsyncOpenAI
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
+    from google import genai
+    from google.genai import types
+    from mcp_superset import get_superset_schema, query_dashboard_data, create_custom_chart
     
-    api_key = os.getenv("CODEX_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        return {"reply": "Error: CODEX_API_KEY is not configured in .env."}
+        return {"reply": "Error: GEMINI_API_KEY is not configured in .env."}
         
-    client = AsyncOpenAI(api_key=api_key)
+    client = genai.Client(api_key=api_key)
     
-    server_params = StdioServerParameters(
-        command="python",
-        args=["mcp_server.py"],
-        env=os.environ.copy()
+    system_instruction = (
+        f"You are a helpful Data Agent. The current user is {request.username}. "
+        "Use tools to answer questions or create charts. Do NOT guess column names; always get the schema first. "
+        f"IMPORTANT: Whenever a tool requires 'user_id', ALWAYS pass exactly '{request.username}'."
     )
     
+    # Format messages for Gemini
+    contents = []
+    for msg in request.history:
+        role = "user" if msg.get("isUser") else "model"
+        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg.get("text", ""))]))
+        
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=request.query)]))
+    
+    tools = [get_superset_schema, query_dashboard_data, create_custom_chart]
+    
     try:
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
+        response = client.models.generate_content(
+            model='gemini-1.5-pro-latest',
+            contents=contents,
+            config=types.GenerateContentConfig(
+                tools=tools,
+                system_instruction=system_instruction,
+                temperature=0.1
+            )
+        )
+        
+        # Handle tool calls
+        if response.function_calls:
+            # We append the model's tool calls to contents
+            contents.append(response.candidates[0].content)
+            
+            tool_responses = []
+            for function_call in response.function_calls:
+                name = function_call.name
+                args = function_call.args or {}
                 
-                # Retrieve tools from MCP Server
-                mcp_tools = await session.list_tools()
+                # Execute the corresponding function
+                try:
+                    if name == "get_superset_schema":
+                        result = get_superset_schema()
+                    elif name == "query_dashboard_data":
+                        # Ensure user_id is injected or overwritten for security
+                        args["user_id"] = request.username
+                        result = query_dashboard_data(**args)
+                    elif name == "create_custom_chart":
+                        args["user_id"] = request.username
+                        result = create_custom_chart(**args)
+                    else:
+                        result = f"Unknown tool {name}"
+                except Exception as e:
+                    result = f"Error executing {name}: {str(e)}"
                 
-                # Convert to OpenAI tool format
-                openai_tools = []
-                for t in mcp_tools.tools:
-                    openai_tools.append({
-                        "type": "function",
-                        "function": {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.inputSchema
-                        }
-                    })
-                
-                messages = [
-                    {"role": "system", "content": f"You are a helpful Data Agent. The current user is {request.username}. Use tools to answer questions or create charts. Do NOT guess column names; always get the schema first."}
-                ]
-                
-                for msg in request.history:
-                    role = "user" if msg.get("isUser") else "assistant"
-                    messages.append({"role": role, "content": msg.get("text", "")})
-                    
-                messages.append({"role": "user", "content": request.query})
-                
-                # First OpenAI call
-                response = await client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=messages,
-                    tools=openai_tools if openai_tools else None
-                )
-                
-                response_message = response.choices[0].message
-                messages.append(response_message)
-                
-                # Process tool calls
-                if response_message.tool_calls:
-                    for tool_call in response_message.tool_calls:
-                        tool_name = tool_call.function.name
-                        tool_args = json.loads(tool_call.function.arguments)
-                        
-                        # Inject username automatically for create_superset_chart if not provided
-                        if tool_name == "create_superset_chart" and "username" not in tool_args:
-                            tool_args["username"] = request.username
-                            
-                        # Execute tool on MCP Server
-                        tool_result = await session.call_tool(tool_name, tool_args)
-                        
-                        # Assuming tool_result.content[0].text is the string result
-                        result_text = tool_result.content[0].text if tool_result.content else "Success"
-                        
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_name,
-                            "content": result_text
-                        })
-                        
-                    # Second OpenAI call to synthesize tool results
-                    final_response = await client.chat.completions.create(
-                        model="gpt-3.5-turbo",
-                        messages=messages
+                # We need to construct a proper function response
+                # google.genai types:
+                tool_responses.append(
+                    types.Part.from_function_response(
+                        name=name,
+                        response={"result": result}
                     )
-                    return {"reply": final_response.choices[0].message.content}
-                
-                return {"reply": response_message.content}
-                
+                )
+            
+            # Send the tool responses back
+            contents.append(types.Content(role="tool", parts=tool_responses))
+            
+            final_response = client.models.generate_content(
+                model='gemini-1.5-pro-latest',
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    tools=tools,
+                    system_instruction=system_instruction,
+                    temperature=0.1
+                )
+            )
+            return {"reply": final_response.text}
+            
+        return {"reply": response.text}
+        
     except Exception as e:
-        logger.error(f"MCP Chat Error: {e}")
+        logger.error(f"Gemini Chat Error: {e}")
         return {"reply": f"Error executing Data Agent: {str(e)}"}
 
 if __name__ == "__main__":

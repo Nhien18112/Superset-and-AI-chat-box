@@ -99,6 +99,7 @@ services:
       - SUPERSET_URL=http://superset:8088
       - SUPERSET_USERNAME=admin
       - SUPERSET_PASSWORD=admin
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
       superset:
         condition: service_started
@@ -118,8 +119,7 @@ services:
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: adminpassword
       # Lấy API Key từ file .env
-      GROQ_API_KEY: ${GROQ_API_KEY}
-      CODEX_API_KEY: ${CODEX_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
       # URL để Backend gọi Superset xử lý RLS
       SUPERSET_URL: http://superset:8088 

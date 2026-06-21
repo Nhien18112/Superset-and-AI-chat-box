@@ -127,7 +127,9 @@ If you prefer to run services natively for development, follow the setup instruc
 ### 3. Spring Boot Backend Setup
 * Open [backend/src/main/resources/application.yml](file:///c:/252/vdt-data-platform/vdt-data-platform/backend/src/main/resources/application.yml) and configure your local Postgres settings, or set the environment variables:
   ```bash
-  export GROQ_API_KEY=your_groq_api_key
+  export SUPERSET_SECRET_KEY=your_superset_secret_key
+  export API_KEY=your_api_key_here
+  export AUTOMATION_WORKER_URL=http://localhost:8000
   export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/vdt_db
   export SPRING_DATASOURCE_USERNAME=your_db_username
   export SPRING_DATASOURCE_PASSWORD=your_db_password

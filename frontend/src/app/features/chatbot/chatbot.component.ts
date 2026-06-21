@@ -11,7 +11,7 @@ import { ApiService } from '../../core/services/api.service';
     <div class="chatbot-container">
       <div class="chat-header">
         <h3 class="chat-title">Data Agent</h3>
-        <span class="chat-subtitle">Ask questions, powered by Codex & Superset</span>
+        <span class="chat-subtitle">Ask questions, powered by Gemini 1.5 Pro & Superset</span>
       </div>
       <div class="chat-history">
         <div *ngFor="let msg of messages" class="chat-message" [ngClass]="msg.sender">

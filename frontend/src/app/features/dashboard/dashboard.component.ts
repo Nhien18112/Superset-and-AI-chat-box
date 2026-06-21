@@ -5,7 +5,7 @@ import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../core/services/auth.service';
 import { environment } from '../../../environments/environment';
-import { embedDashboard } from '@superset-ui/embedded-sdk';
+import { DomSanitizer } from '@angular/platform-browser';
 
 interface ChatMessage {
   text: string;
@@ -35,7 +35,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
     private authService: AuthService, 
     private router: Router, 
     private http: HttpClient,
-    private sanitizer: import('@angular/platform-browser').DomSanitizer
+    private sanitizer: DomSanitizer
   ) {}
 
   ngOnInit() {
