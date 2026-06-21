@@ -87,56 +87,26 @@ public class SupersetService {
         throw new RuntimeException("Failed to retrieve dashboard UUID from worker");
     }
 
-    public String getGuestToken(String targetUsername, String role) {
-        String adminToken = getAdminAccessToken();
-        String guestTokenUrl = supersetUrl + "/api/v1/security/guest_token/";
+    @Value("${superset.secret-key}")
+    private String supersetSecretKey;
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(adminToken);
+    public String getSsoToken(String targetUsername, String role) {
+        // We use the same secret as Superset to generate the JWT
 
-        Map<String, Object> payload = new HashMap<>();
-        
-        // Ensure the payload matches the expected embedded SDK guest token structure
-        Map<String, String> userMap = new HashMap<>();
-        userMap.put("username", targetUsername);
-        userMap.put("first_name", targetUsername);
-        userMap.put("last_name", "User");
-        payload.put("user", userMap);
+        // Create JWT token for custom Superset login
+        long nowMillis = System.currentTimeMillis();
+        Date now = new Date(nowMillis);
+        long expMillis = nowMillis + 3600000; // 1 hour expiration
+        Date exp = new Date(expMillis);
 
-        List<Map<String, String>> resources = new ArrayList<>();
-        Map<String, String> resource = new HashMap<>();
-        resource.put("type", "dashboard");
-        resource.put("id", getDashboardUuid());
-        resources.add(resource);
-        payload.put("resources", resources);
+        io.jsonwebtoken.JwtBuilder builder = io.jsonwebtoken.Jwts.builder()
+                .setSubject(targetUsername)
+                .claim("username", targetUsername)
+                .claim("role", role)
+                .setIssuedAt(now)
+                .setExpiration(exp)
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(supersetSecretKey.getBytes()));
 
-        List<Map<String, Object>> rls = new ArrayList<>();
-        Map<String, Object> rlsRule = new HashMap<>();
-        rlsRule.put("dataset", cachedDatasetId);
-        
-        String rlsClause;
-        if ("ROLE_BROKER".equals(role)) {
-            rlsClause = "investor_id IN (SELECT investor_id FROM dim_investors WHERE broker_id = '" + targetUsername + "')";
-        } else {
-            rlsClause = "investor_id = '" + targetUsername + "'";
-        }
-        rlsRule.put("clause", rlsClause);
-        
-        rls.add(rlsRule);
-        payload.put("rls", rls); 
-
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-
-        try {
-            ResponseEntity<Map> response = restTemplate.postForEntity(guestTokenUrl, request, Map.class);
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return (String) response.getBody().get("token");
-            }
-        } catch (Exception e) {
-            logger.error("Failed to fetch guest token from Superset: {}", e.getMessage());
-            throw new RuntimeException("Failed to fetch guest token");
-        }
-        throw new RuntimeException("Failed to fetch guest token (no token in response)");
+        return builder.compact();
     }
 }

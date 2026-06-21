@@ -18,12 +18,13 @@ superset:
   url: ${SUPERSET_BASE_URL:http://localhost:8088}
   username: ${SUPERSET_ADMIN_USERNAME:admin}
   password: ${SUPERSET_ADMIN_PASSWORD:admin}
+  secret-key: ${SUPERSET_SECRET_KEY:vdt_super_secret_key_2026_do_not_share}
   automation-worker-url: ${AUTOMATION_WORKER_URL:http://python-worker:8000}
 
-groq:
+codex:
   api:
-    url: "https://api.groq.com/openai/v1/chat/completions"
-    key: ${GROQ_API_KEY:your-key}
+    url: "https://api.openai.com/v1/chat/completions"
+    key: ${CODEX_API_KEY:your-key}
 
 jwt:
   secret: ${JWT_SECRET_KEY:ThisIsASecretKeyForJWTAuthenticationInVDTDataPlatformMustBeAtLeast32BytesLong}

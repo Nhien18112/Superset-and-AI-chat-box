@@ -29,7 +29,14 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   ];
   isChatLoading: boolean = false;
 
-  constructor(private authService: AuthService, private router: Router, private http: HttpClient) {}
+  supersetIframeUrl: any = null;
+
+  constructor(
+    private authService: AuthService, 
+    private router: Router, 
+    private http: HttpClient,
+    private sanitizer: import('@angular/platform-browser').DomSanitizer
+  ) {}
 
   ngOnInit() {
     if (!this.authService.isAuthenticated()) {
@@ -53,25 +60,23 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   }
 
   embedSuperset() {
-    this.http.get<any>(`${environment.BACKEND_API_URL}/superset/guest-token`).subscribe({
+    this.http.get<any>(`${environment.BACKEND_API_URL}/superset/sso-login`).subscribe({
       next: (res) => {
         const token = res.token;
         const dashboardId = res.dashboardId;
-        const mountPoint = document.getElementById('dashboard-mount-point');
-        if (mountPoint && dashboardId) {
-            mountPoint.innerHTML = '';
-            // Clear the Superset session cookie to prevent conflict with the Guest Token on refresh
-            document.cookie = "session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-            embedDashboard({
-                id: dashboardId,
-                supersetDomain: environment.SUPERSET_DOMAIN,
-                mountPoint: mountPoint,
-                fetchGuestToken: () => Promise.resolve(token),
-                dashboardUiConfig: { hideTitle: true, hideChartControls: true, hideTab: true }
-            });
+        
+        // Hide the loading overlay if present
+        const mountPoint = document.getElementById('loading-overlay');
+        if (mountPoint) {
+            mountPoint.style.display = 'none';
         }
+
+        // We load the main dashboard initially, but users have the full UI to navigate
+        const targetUrl = dashboardId ? `/superset/dashboard/${dashboardId}/` : `/superset/welcome/`;
+        const url = `${environment.SUPERSET_DOMAIN}/login/custom?token=${token}&next=${encodeURIComponent(targetUrl)}`;
+        this.supersetIframeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
       },
-      error: (err) => console.error("Failed to load Superset guest token", err)
+      error: (err) => console.error("Failed to load Superset SSO token", err)
     });
   }
 

@@ -276,20 +276,39 @@ def create_dashboard_endpoint(request: DashboardRequest):
         if res.status_code != 200:
             logger.warning(f"Failed to link chart {cid} to dashboard {dashboard_id}: {res.text}")
 
-    # 6. Enable Embedding and Retrieve UUID
-    embed_res = client.session.post(f"{SUPERSET_URL}/api/v1/dashboard/{dashboard_id}/embedded", json={"allowed_domains": []})
-    if embed_res.status_code != 200:
-        logger.error(f"Failed to enable embedding for dashboard {dashboard_id}: {embed_res.text}")
-        raise HTTPException(status_code=500, detail="Failed to enable dashboard embedding")
-    
-    embedded_uuid = embed_res.json().get("result", {}).get("uuid")
+    # 6. Ensure native Row Level Security (RLS) is created
+    # Get Gamma role ID
+    role_res = client.session.get(f"{SUPERSET_URL}/api/v1/security/roles/?q={json.dumps({'filters':[{'col':'name','opr':'eq','value':'Gamma'}]})}")
+    gamma_role_id = None
+    if role_res.status_code == 200:
+        roles = role_res.json().get("result", [])
+        if roles:
+            gamma_role_id = roles[0].get("id")
+
+    if gamma_role_id:
+        rls_payload = {
+            "name": "Fact Orders Dynamic RLS",
+            "description": "Dynamic RLS based on Spring role",
+            "filter_type": "Regular",
+            "tables": [dataset_id],
+            "roles": [gamma_role_id],
+            "clause": "{% if current_user_spring_role() == 'ROLE_BROKER' %} investor_id IN (SELECT investor_id FROM dim_investors WHERE broker_id = '{{ current_username() }}') {% elif current_user_spring_role() == 'ROLE_INVESTOR' %} investor_id = '{{ current_username() }}' {% else %} 1=1 {% endif %}"
+        }
+        
+        # Check if RLS exists first to avoid duplicates
+        rls_check = client.session.get(f"{SUPERSET_URL}/api/v1/rowlevelsecurity/?q={json.dumps({'filters':[{'col':'name','opr':'eq','value':'Fact Orders Dynamic RLS'}]})}")
+        if rls_check.status_code == 200 and len(rls_check.json().get("result", [])) == 0:
+            client.session.post(f"{SUPERSET_URL}/api/v1/rowlevelsecurity/", json=rls_payload)
+            logger.info("Native RLS rule created for Gamma role.")
+        else:
+            logger.info("Native RLS rule already exists or check failed.")
 
     return {
         "status": "success",
         "dashboard_id": dashboard_id,
-        "dashboard_uuid": embedded_uuid,
+        "dashboard_uuid": "not_embedded_anymore",
         "dataset_id": dataset_id,
-        "message": f"Dashboard '{request.dashboard_title}' created successfully with 3 charts."
+        "message": f"Dashboard '{request.dashboard_title}' created successfully with native RLS."
     }
 
 if __name__ == "__main__":

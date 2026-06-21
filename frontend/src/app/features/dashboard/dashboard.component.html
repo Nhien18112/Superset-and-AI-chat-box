@@ -23,14 +23,15 @@
       <div class="dashboard-container">
         <div class="dashboard-mount" id="dashboard-mount-point">
           <!-- Animation overlay while loading -->
-          <div class="secure-loader-overlay" id="loading-overlay">
+          <div class="secure-loader-overlay" id="loading-overlay" *ngIf="!supersetIframeUrl">
             <div class="radar-spinner"></div>
             <div class="loader-text">
               <span class="loader-status">Establishing Secure Connection...</span>
-              <span class="loader-sub">Decrypting Dashboard Payload</span>
+              <span class="loader-sub">Authenticating Session</span>
             </div>
           </div>
-          <!-- Superset iframe will be embedded here -->
+          <!-- Superset iframe embedded here -->
+          <iframe *ngIf="supersetIframeUrl" [src]="supersetIframeUrl" width="100%" height="100%" frameborder="0"></iframe>
         </div>
       </div>
     </main>
@@ -40,7 +41,7 @@
       <div class="chatbot-container">
         <div class="chat-header">
           <div class="chat-title">Secure Terminal</div>
-          <div class="chat-subtitle">Data Agent // Powered by Groq LLM</div>
+          <div class="chat-subtitle">Data Agent // Powered by Codex LLM</div>
         </div>
         
         <div class="chat-history" #chatScroll>

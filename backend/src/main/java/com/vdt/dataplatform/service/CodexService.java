@@ -13,20 +13,19 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-public class GroqService {
+public class CodexService {
 
-    private static final Logger logger = LoggerFactory.getLogger(GroqService.class);
+    private static final Logger logger = LoggerFactory.getLogger(CodexService.class);
 
-    @Value("${groq.api.url}")
-    private String groqApiUrl;
+    @Value("${codex.api.url}")
+    private String codexApiUrl;
 
-    @Value("${groq.api.key}")
-    private String groqApiKey;
+    @Value("${codex.api.key}")
+    private String codexApiKey;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
     public String processUserQuery(String userQuery, String targetUsername) {
-        // 1. Construct the prompt for Text-to-SQL without specifying RLS rules
         String systemPrompt = "You are an expert SQL assistant for a mock stock platform. "
                 + "Generate a generic PostgreSQL query based on the user's question. "
                 + "The database schema is:\n"
@@ -37,20 +36,17 @@ public class GroqService {
                 + "IMPORTANT: Do NOT add WHERE clauses for the user ID. Row-Level Security is handled automatically by Superset. "
                 + "Return ONLY the SQL query.";
 
-        // 2. Call Groq API
-        String generatedSql = callGroqApi(systemPrompt, userQuery);
-
-        // 3. Proxy to Superset MCP/API under the user's RLS context
+        String generatedSql = callCodexApi(systemPrompt, userQuery);
         return executeSqlInSupersetContext(generatedSql, targetUsername);
     }
 
-    private String callGroqApi(String systemPrompt, String userQuery) {
+    private String callCodexApi(String systemPrompt, String userQuery) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(groqApiKey);
+        headers.setBearerAuth(codexApiKey);
 
         Map<String, Object> payload = new HashMap<>();
-        payload.put("model", "llama3-8b-8192");
+        payload.put("model", "gpt-3.5-turbo"); // Placeholder for Codex-compatible model
         
         List<Map<String, String>> messages = new ArrayList<>();
         
@@ -70,7 +66,7 @@ public class GroqService {
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
 
         try {
-            ResponseEntity<Map> response = restTemplate.postForEntity(groqApiUrl, request, Map.class);
+            ResponseEntity<Map> response = restTemplate.postForEntity(codexApiUrl, request, Map.class);
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
                 if (choices != null && !choices.isEmpty()) {
@@ -79,10 +75,10 @@ public class GroqService {
                 }
             }
         } catch (Exception e) {
-            logger.error("Groq API error in callGroqApi: {}", e.getMessage());
+            logger.error("Codex API error in callCodexApi: {}", e.getMessage());
             return "Failed to generate query: " + e.getMessage();
         }
-        return "Error: Empty response from Groq.";
+        return "Error: Empty response from Codex.";
     }
 
     public String processUserQueryWithHistory(String userQuery, String targetUsername, List<com.vdt.dataplatform.model.ChatMessage> history) {
@@ -98,10 +94,10 @@ public class GroqService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(groqApiKey);
+        headers.setBearerAuth(codexApiKey);
 
         Map<String, Object> payload = new HashMap<>();
-        payload.put("model", "llama3-8b-8192"); // Use a valid Groq model
+        payload.put("model", "gpt-3.5-turbo"); 
         
         List<Map<String, String>> messages = new ArrayList<>();
         
@@ -131,7 +127,7 @@ public class GroqService {
 
         String generatedSql = "Error";
         try {
-            ResponseEntity<Map> response = restTemplate.postForEntity(groqApiUrl, request, Map.class);
+            ResponseEntity<Map> response = restTemplate.postForEntity(codexApiUrl, request, Map.class);
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
                 if (choices != null && !choices.isEmpty()) {
@@ -139,10 +135,10 @@ public class GroqService {
                     generatedSql = (String) message.get("content");
                 }
             } else {
-                return "Error: Empty response from Groq.";
+                return "Error: Empty response from Codex.";
             }
         } catch (Exception e) {
-            logger.error("Groq API error: {}", e.getMessage());
+            logger.error("Codex API error: {}", e.getMessage());
             return "Failed to generate query: " + e.getMessage();
         }
 
@@ -150,14 +146,9 @@ public class GroqService {
     }
 
     private String executeSqlInSupersetContext(String sql, String username) {
-        // Here we implement the proxy logic to Superset MCP
-        // The Backend ensures the tool call runs under the RLS context of 'username'
-        
         logger.info("Proxying MCP SQL execution to Superset for user: {}", username);
         logger.info("Executing SQL: {}", sql);
         
-        // Mocking the result of the MCP proxy call since we don't have the literal MCP url setup
-        // In reality, this would be an HTTP POST to the MCP server with the sql payload and auth context.
         return "Executed SQL securely for user " + username + ":\n\n" + sql + "\n\n(Mocked ResultSet: 10 rows retrieved)";
     }
 }

@@ -22,8 +22,8 @@ public class SupersetController {
     @Autowired
     private com.vdt.dataplatform.repository.UserRepository userRepository;
 
-    @GetMapping("/guest-token")
-    public ResponseEntity<?> getGuestToken() {
+    @GetMapping("/sso-login")
+    public ResponseEntity<?> getSsoToken() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         String username;
         
@@ -41,13 +41,13 @@ public class SupersetController {
         }
 
         try {
-            String guestToken = supersetService.getGuestToken(username, role);
+            String ssoToken = supersetService.getSsoToken(username, role);
             Map<String, String> response = new HashMap<>();
-            response.put("token", guestToken);
+            response.put("token", ssoToken);
             response.put("dashboardId", supersetService.getDashboardUuid());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error fetching guest token: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error fetching SSO token: " + e.getMessage());
         }
     }
 }

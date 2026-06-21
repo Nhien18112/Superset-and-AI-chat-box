@@ -22,7 +22,7 @@ public class ChatService {
     private ChatMessageRepository chatMessageRepository;
 
     @Autowired
-    private GroqService groqService;
+    private CodexService codexService;
 
     public String processChat(String sessionId, String query, String username) {
         // Security check
@@ -48,8 +48,8 @@ public class ChatService {
         userMsg.setContent(query);
         chatMessageRepository.save(userMsg);
 
-        // Execute Groq API with context
-        String aiResponse = groqService.processUserQueryWithHistory(query, username, history);
+        // Execute Codex API with context
+        String aiResponse = codexService.processUserQueryWithHistory(query, username, history);
 
         // Save AI response
         ChatMessage aiMsg = new ChatMessage();
