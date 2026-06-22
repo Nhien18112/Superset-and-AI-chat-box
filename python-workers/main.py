@@ -303,6 +303,10 @@ def create_dashboard_endpoint(request: DashboardRequest):
         else:
             logger.info("Native RLS rule already exists or check failed.")
 
+        # 7. Grant Gamma role access to the dashboard (required when DASHBOARD_RBAC is True)
+        client.session.put(f"{SUPERSET_URL}/api/v1/dashboard/{dashboard_id}", json={"roles": [gamma_role_id]})
+        logger.info(f"Dashboard {dashboard_id} granted access to Gamma role.")
+
     return {
         "status": "success",
         "dashboard_id": dashboard_id,
@@ -319,101 +323,177 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 def chat_endpoint(request: ChatRequest):
     """
-    Connects to Gemini 1.5 Pro, binds tools from mcp_superset.py,
+    Connects to OpenAI API (Codex), binds tools from mcp_superset.py,
     and executes tool calls locally to fetch data or create charts in Superset.
     """
     import os
     import json
-    from google import genai
-    from google.genai import types
-    from mcp_superset import get_superset_schema, query_dashboard_data, create_custom_chart
+    import openai
+    from mcp_superset import get_superset_schema, query_dashboard_data, create_custom_chart, get_user_dashboards_and_charts, create_custom_dashboard
     
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("CODEX_API_KEY")
+    base_url = os.getenv("CODEX_BASE_URL")
+    
     if not api_key:
-        return {"reply": "Error: GEMINI_API_KEY is not configured in .env."}
+        return {"reply": "Error: CODEX_API_KEY is not configured in .env."}
         
-    client = genai.Client(api_key=api_key)
+    client = openai.OpenAI(
+        api_key=api_key,
+        base_url=base_url if base_url else None
+    )
     
     system_instruction = (
         f"You are a helpful Data Agent. The current user is {request.username}. "
-        "Use tools to answer questions or create charts. Do NOT guess column names; always get the schema first. "
-        f"IMPORTANT: Whenever a tool requires 'user_id', ALWAYS pass exactly '{request.username}'."
+        "Use tools to answer questions, explain existing charts, or create custom dashboards. "
+        "To explain charts, use get_user_dashboards_and_charts to see what they mean. "
+        "To create a dashboard, first use create_custom_chart for each chart, then use create_custom_dashboard with the returned chart IDs. "
+        "IMPORTANT: When specifying metrics in create_custom_chart, you MUST use the Ad-hoc Metric JSON format, e.g., "
+        "{'expressionType': 'SQL', 'sqlExpression': 'AVG(price)', 'label': 'Average Price'} or "
+        "{'expressionType': 'SIMPLE', 'column': {'column_name': 'price'}, 'aggregate': 'AVG', 'label': 'Avg Price'}. Do NOT pass raw strings like 'avg_price'. "
+        "IMPORTANT: The ONLY valid `viz_type` values for charts are: 'echarts_timeseries_line', 'echarts_timeseries_bar', 'pie', 'table', 'big_number'. Do NOT use 'line' or 'bar'. "
+        "IMPORTANT: If you create a chart, you MUST include the exact text [OPEN_CHART:<id>] (e.g. [OPEN_CHART:28]) in your final reply to automatically show it to the user. "
+        "If you create a dashboard, you MUST include the exact text [OPEN_DASHBOARD:<id>] in your final reply. "
+        "Do NOT guess column names; always get the schema first. "
+        "IMPORTANT: You do not need to provide user_id to any tools; it is injected automatically."
     )
     
-    # Format messages for Gemini
-    contents = []
+    # Format messages for OpenAI
+    messages = [{"role": "system", "content": system_instruction}]
     for msg in request.history:
-        role = "user" if msg.get("isUser") else "model"
-        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg.get("text", ""))]))
+        role = "user" if msg.get("isUser") else "assistant"
+        messages.append({"role": role, "content": msg.get("text", "")})
         
-    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=request.query)]))
+    messages.append({"role": "user", "content": request.query})
     
-    tools = [get_superset_schema, query_dashboard_data, create_custom_chart]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_superset_schema",
+                "description": "Returns the database schema to help you write SQL queries or understand the data structure."
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "query_dashboard_data",
+                "description": "Fetches data from Superset with RLS applied automatically.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query_params": {"type": "object", "description": "Dictionary containing query details (e.g., metrics, groupby, row_limit)."}
+                    },
+                    "required": ["query_params"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_custom_chart",
+                "description": "Calls Superset API to create a new chart.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "chart_params": {"type": "object", "description": "Dictionary with slice_name, viz_type, metrics, groupby, etc."}
+                    },
+                    "required": ["chart_params"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_user_dashboards_and_charts",
+                "description": "Retrieves metadata about the charts accessible to the user on the database."
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_custom_dashboard",
+                "description": "Creates a new Superset Dashboard containing the specified chart IDs.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "dashboard_title": {"type": "string", "description": "The title of the new dashboard."},
+                        "chart_ids": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "A list of integer IDs of the charts to include."
+                        }
+                    },
+                    "required": ["dashboard_title", "chart_ids"]
+                }
+            }
+        }
+    ]
     
     try:
-        response = client.models.generate_content(
-            model='gemini-1.5-pro-latest',
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=tools,
-                system_instruction=system_instruction,
-                temperature=0.1
-            )
-        )
+        def call_openai(msgs, max_retries=3):
+            import time
+            for attempt in range(max_retries):
+                try:
+                    return client.chat.completions.create(
+                        model='gpt-5.4-mini',
+                        messages=msgs,
+                        tools=tools,
+                        temperature=0.1
+                    )
+                except Exception as e:
+                    if '503' in str(e) and attempt < max_retries - 1:
+                        logger.warning(f"503 received, retrying in {2 ** attempt} seconds...")
+                        time.sleep(2 ** attempt)
+                    else:
+                        raise e
+                        
+        response = call_openai(messages)
+        message = response.choices[0].message
         
         # Handle tool calls
-        if response.function_calls:
-            # We append the model's tool calls to contents
-            contents.append(response.candidates[0].content)
+        while message.tool_calls:
+            # We append the model's message to context
+            messages.append(message)
             
-            tool_responses = []
-            for function_call in response.function_calls:
-                name = function_call.name
-                args = function_call.args or {}
+            for tool_call in message.tool_calls:
+                name = tool_call.function.name
+                args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
                 
-                # Execute the corresponding function
                 try:
                     if name == "get_superset_schema":
                         result = get_superset_schema()
                     elif name == "query_dashboard_data":
-                        # Ensure user_id is injected or overwritten for security
                         args["user_id"] = request.username
                         result = query_dashboard_data(**args)
                     elif name == "create_custom_chart":
                         args["user_id"] = request.username
                         result = create_custom_chart(**args)
+                    elif name == "get_user_dashboards_and_charts":
+                        args["user_id"] = request.username
+                        result = get_user_dashboards_and_charts(**args)
+                    elif name == "create_custom_dashboard":
+                        args["user_id"] = request.username
+                        result = create_custom_dashboard(**args)
                     else:
                         result = f"Unknown tool {name}"
                 except Exception as e:
                     result = f"Error executing {name}: {str(e)}"
                 
-                # We need to construct a proper function response
-                # google.genai types:
-                tool_responses.append(
-                    types.Part.from_function_response(
-                        name=name,
-                        response={"result": result}
-                    )
-                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": name,
+                    "content": str(result)
+                })
             
-            # Send the tool responses back
-            contents.append(types.Content(role="tool", parts=tool_responses))
+            response = call_openai(messages)
+            message = response.choices[0].message
             
-            final_response = client.models.generate_content(
-                model='gemini-1.5-pro-latest',
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    tools=tools,
-                    system_instruction=system_instruction,
-                    temperature=0.1
-                )
-            )
-            return {"reply": final_response.text}
-            
-        return {"reply": response.text}
+        final_content = message.content
+        return {"reply": final_content if final_content is not None else "I have completed the task."}
         
     except Exception as e:
-        logger.error(f"Gemini Chat Error: {e}")
+        logger.error(f"OpenAI Chat Error: {e}")
         return {"reply": f"Error executing Data Agent: {str(e)}"}
 
 if __name__ == "__main__":

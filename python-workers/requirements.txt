@@ -3,5 +3,5 @@ uvicorn
 pydantic
 requests
 mcp[cli]
-google-genai
+openai==1.55.3
 httpx

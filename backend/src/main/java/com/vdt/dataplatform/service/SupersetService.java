@@ -75,9 +75,9 @@ public class SupersetService {
         try {
             ResponseEntity<Map> response = restTemplate.postForEntity(createDashboardUrl, request, Map.class);
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                cachedDashboardUuid = (String) response.getBody().get("dashboard_uuid");
+                cachedDashboardUuid = String.valueOf(response.getBody().get("dashboard_id"));
                 cachedDatasetId = (Integer) response.getBody().get("dataset_id");
-                logger.info("Successfully fetched embedded dashboard UUID from worker: {}", cachedDashboardUuid);
+                logger.info("Successfully fetched dashboard ID from worker: {}", cachedDashboardUuid);
                 return cachedDashboardUuid;
             }
         } catch (Exception e) {

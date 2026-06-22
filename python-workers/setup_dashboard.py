@@ -77,5 +77,31 @@ class SupersetSetup:
         else:
             print(f"FAILED TO EMBED: {res.text}")
 
+        # Grant Gamma role access to fact_orders
+        try:
+            import psycopg2
+            conn = psycopg2.connect("postgresql://admin:adminpassword@postgres:5432/vdt_db")
+            cur = conn.cursor()
+            
+            # Find Gamma role ID
+            cur.execute("SELECT id FROM ab_role WHERE name = 'Gamma';")
+            gamma_row = cur.fetchone()
+            
+            # Find Permission View ID for fact_orders
+            cur.execute("SELECT pv.id FROM ab_permission_view pv JOIN ab_permission p ON pv.permission_id = p.id JOIN ab_view_menu v ON pv.view_menu_id = v.id WHERE p.name = 'datasource_access' AND v.name = '[vdt_db].[fact_orders](id:1)';")
+            pv_row = cur.fetchone()
+            
+            if gamma_row and pv_row:
+                gamma_id = gamma_row[0]
+                pv_id = pv_row[0]
+                cur.execute("INSERT INTO ab_permission_view_role (id, permission_view_id, role_id) VALUES ((SELECT COALESCE(MAX(id),0)+1 FROM ab_permission_view_role), %s, %s) ON CONFLICT DO NOTHING;", (pv_id, gamma_id))
+                conn.commit()
+                print("Successfully granted Gamma role access to fact_orders datasource.")
+            
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"Warning: Failed to auto-grant Gamma permissions: {e}")
+
 if __name__ == "__main__":
     SupersetSetup().setup()

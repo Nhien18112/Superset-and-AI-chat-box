@@ -86,29 +86,14 @@ def query_dashboard_data(user_id: str, query_params: Dict[str, Any]) -> str:
         client.login()
         dataset_id = client.get_dataset_id("fact_orders")
 
-        # 1. Generate Guest Token with RLS
-        guest_payload = {
-            "user": {
-                "username": user_id,
-                "first_name": "Guest",
-                "last_name": user_id
-            },
-            "resources": [{"type": "dashboard", "id": "embedded-dashboard-id"}], # Placeholder or fetch real ID
-            "rls": [
-                {
-                    "dataset": dataset_id,
-                    "clause": f"investor_id = '{user_id}'"
-                }
-            ]
+        # 1. Enforce RLS by injecting a filter
+        filter_clause = {
+            "col": "investor_id",
+            "op": "==",
+            "val": user_id
         }
-        gt_res = client.session.post(f"{SUPERSET_URL}/api/v1/security/guest_token/", json=guest_payload)
-        gt_res.raise_for_status()
-        guest_token = gt_res.json().get("token")
-
-        # 2. Query Data using Guest Token
-        headers = {"Authorization": f"Bearer {guest_token}"}
         
-        # Build query payload
+        # 2. Build query payload using Admin session
         chart_data_payload = {
             "datasource": {
                 "id": dataset_id,
@@ -118,6 +103,7 @@ def query_dashboard_data(user_id: str, query_params: Dict[str, Any]) -> str:
                 {
                     "metrics": query_params.get("metrics", ["count"]),
                     "columns": query_params.get("groupby", []),
+                    "filters": [filter_clause],
                     "row_limit": query_params.get("row_limit", 100)
                 }
             ],
@@ -125,7 +111,7 @@ def query_dashboard_data(user_id: str, query_params: Dict[str, Any]) -> str:
             "result_type": "full"
         }
 
-        data_res = requests.post(f"{SUPERSET_URL}/api/v1/chart/data", json=chart_data_payload, headers=headers)
+        data_res = client.session.post(f"{SUPERSET_URL}/api/v1/chart/data", json=chart_data_payload)
         data_res.raise_for_status()
         
         return json.dumps(data_res.json().get("result", []), indent=2)
@@ -172,4 +158,130 @@ def create_custom_chart(user_id: str, chart_params: Dict[str, Any]) -> str:
 
     except Exception as e:
         logger.error(f"Error creating custom chart: {e}")
+        return f"Error: {str(e)}"
+
+def get_user_dashboards_and_charts(user_id: str) -> str:
+    """
+    Retrieves metadata about the charts accessible to the user on the database,
+    including their metrics, configurations, and meanings.
+    """
+    try:
+        client = MCPClient()
+        client.login()
+        dataset_id = client.get_dataset_id("fact_orders")
+        
+        # Fetch charts for the dataset
+        chart_res = client.session.get(f"{SUPERSET_URL}/api/v1/chart/?q={json.dumps({'filters':[{'col':'datasource_id','opr':'eq','value':dataset_id}]})}")
+        charts = []
+        if chart_res.status_code == 200:
+            for c in chart_res.json().get("result", []):
+                params_str = c.get("params", "{}")
+                try:
+                    params = json.loads(params_str) if isinstance(params_str, str) else params_str
+                except:
+                    params = {}
+                charts.append({
+                    "id": c["id"],
+                    "slice_name": c["slice_name"],
+                    "viz_type": c["viz_type"],
+                    "metrics": params.get("metrics", []) or params.get("metric", []),
+                    "groupby": params.get("groupby", []),
+                    "description": c.get("description", "")
+                })
+        
+        return json.dumps({"charts": charts}, indent=2)
+    except Exception as e:
+        logger.error(f"Error fetching dashboards/charts: {e}")
+        return f"Error: {str(e)}"
+
+def create_custom_dashboard(user_id: str, dashboard_title: str, chart_ids: list[int]) -> str:
+    """
+    Creates a new Superset Dashboard containing the specified chart IDs.
+    
+    Args:
+        user_id: The ID of the user creating the dashboard.
+        dashboard_title: The title of the new dashboard.
+        chart_ids: A list of integer IDs of the charts to include.
+    """
+    import uuid
+    try:
+        client = MCPClient()
+        client.login()
+
+        user_res = client.session.get(f"{SUPERSET_URL}/api/v1/security/users/?q={json.dumps({'filters':[{'col':'username','opr':'eq','value':user_id}]})}")
+        owners = []
+        if user_res.status_code == 200:
+            users = user_res.json().get("result", [])
+            if users:
+                owners.append(users[0]["id"])
+        
+        role_res = client.session.get(f"{SUPERSET_URL}/api/v1/security/roles/?q={json.dumps({'filters':[{'col':'name','opr':'eq','value':'Gamma'}]})}")
+        gamma_role_id = None
+        if role_res.status_code == 200:
+            roles = role_res.json().get("result", [])
+            if roles:
+                gamma_role_id = roles[0].get("id")
+
+        position_json = {
+            "DASHBOARD_VERSION_KEY": "v2",
+            "ROOT_ID": {
+                "type": "ROOT",
+                "id": "ROOT_ID",
+                "children": ["GRID_ID"]
+            },
+            "GRID_ID": {
+                "type": "GRID",
+                "id": "GRID_ID",
+                "children": ["ROW_1"],
+                "parents": ["ROOT_ID"]
+            },
+            "ROW_1": {
+                "type": "ROW",
+                "id": "ROW_1",
+                "children": [],
+                "parents": ["ROOT_ID", "GRID_ID"],
+                "meta": {"background": "BACKGROUND_TRANSPARENT"}
+            }
+        }
+
+        width_per_chart = max(4, 12 // (len(chart_ids) or 1))
+        chart_layout_ids = []
+        for idx, cid in enumerate(chart_ids):
+            layout_id = f"CHART-{uuid.uuid4().hex[:8]}"
+            chart_layout_ids.append(layout_id)
+            
+            position_json[layout_id] = {
+                "type": "CHART",
+                "id": layout_id,
+                "children": [],
+                "parents": ["ROOT_ID", "GRID_ID", "ROW_1"],
+                "meta": {
+                    "width": width_per_chart,
+                    "height": 50,
+                    "chartId": cid
+                }
+            }
+        
+        position_json["ROW_1"]["children"] = chart_layout_ids
+
+        payload = {
+            "dashboard_title": dashboard_title,
+            "published": True,
+            "position_json": json.dumps(position_json),
+            "owners": owners
+        }
+        
+        if gamma_role_id:
+            payload["roles"] = [gamma_role_id]
+
+        response = client.session.post(f"{SUPERSET_URL}/api/v1/dashboard/", json=payload)
+        response.raise_for_status()
+        dashboard_id = response.json().get("id")
+        
+        for cid in chart_ids:
+            client.session.put(f"{SUPERSET_URL}/api/v1/chart/{cid}", json={"dashboards": [dashboard_id]})
+
+        return f"Dashboard '{dashboard_title}' created successfully with ID: {dashboard_id}"
+    except Exception as e:
+        logger.error(f"Error creating custom dashboard: {e}")
         return f"Error: {str(e)}"
