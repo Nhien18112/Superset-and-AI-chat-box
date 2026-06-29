@@ -1,4 +1,5 @@
 <div class="app-layout">
+
   <!-- Top Bar -->
   <header class="top-bar">
     <div class="context-panel">
@@ -8,7 +9,7 @@
       </div>
       <div class="context-controls">
         <div class="context-group">
-          <label>Session active</label>
+          <label>Session</label>
           <span>{{ username }}</span>
         </div>
         <button class="logout-btn" (click)="logout()">Terminate</button>
@@ -16,58 +17,191 @@
     </div>
   </header>
 
-  <!-- Workspace -->
+  <!-- Full-screen workspace: iframe takes 100% -->
   <div class="workspace">
-    <!-- Main Dashboard Panel -->
     <main class="main-dashboard-panel">
       <div class="dashboard-container">
         <div class="dashboard-mount" id="dashboard-mount-point">
-          <!-- Animation overlay while loading -->
-          <div class="secure-loader-overlay" id="loading-overlay" *ngIf="!supersetIframeUrl">
+          <div class="secure-loader-overlay" *ngIf="!supersetIframeUrl">
             <div class="radar-spinner"></div>
             <div class="loader-text">
               <span class="loader-status">Establishing Secure Connection...</span>
               <span class="loader-sub">Authenticating Session</span>
             </div>
           </div>
-          <!-- Superset iframe embedded here -->
-          <iframe *ngIf="supersetIframeUrl" [src]="supersetIframeUrl" width="100%" height="100%" frameborder="0"></iframe>
+          <iframe *ngIf="supersetIframeUrl" [src]="supersetIframeUrl" frameborder="0"></iframe>
         </div>
       </div>
     </main>
+  </div>
 
-    <!-- Side Chat Panel -->
-    <aside class="side-chat-panel">
-      <div class="chatbot-container">
-        <div class="chat-header">
-          <div class="chat-title">Secure Terminal</div>
-          <div class="chat-subtitle">Data Agent // Powered by Gemini 1.5 Pro</div>
-        </div>
-        
-        <div class="chat-history" #chatScroll>
-          <div *ngFor="let msg of messages" class="chat-message" [ngClass]="msg.isUser ? 'user' : 'agent'">
-            <div class="msg-bubble">
-              {{ msg.text }}
-            </div>
+  <!-- ── Floating Chat Panel ─────────────────────────────────────────── -->
+  <aside class="floating-chat-panel" [class.open]="isChatOpen">
+    <div class="chatbot-container">
+
+      <!-- Header -->
+      <div class="chat-header">
+        <div class="chat-header-left">
+          <div class="chat-header-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
           </div>
-          <div *ngIf="isChatLoading" class="chat-message agent loading">
-            <div class="msg-bubble loading">
-              Awaiting query resolution<span class="cursor-blink"></span>
-            </div>
+          <div>
+            <div class="chat-title">AI Data Agent</div>
+            <div class="chat-subtitle">Codex &middot; Secure Channel</div>
           </div>
         </div>
-        
-        <div class="chat-input-area">
-          <div class="chat-input-wrapper">
-            <span class="chat-input-prefix">{{ username }}&#64;vdt-secure ~$</span>
-            <input type="text" class="chat-input" placeholder="Execute data query..." 
-                   [(ngModel)]="chatQuery" (keyup.enter)="sendChat()" />
-          </div>
-          <button class="chat-send-btn" (click)="sendChat()" [disabled]="isChatLoading || !chatQuery.trim()">
-            Execute
+        <div class="chat-header-actions">
+          <!-- History toggle -->
+          <button class="hdr-btn" [class.hdr-btn-active]="showHistory" (click)="toggleHistory()" title="Chat history">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            History
+          </button>
+          <!-- New chat -->
+          <button class="hdr-btn" (click)="newSession()" title="Start new conversation">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            New chat
+          </button>
+          <button class="hdr-btn hdr-close" (click)="toggleChat()" title="Close panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
           </button>
         </div>
       </div>
-    </aside>
-  </div>
+
+      <!-- ── Session History Panel ── -->
+      <div class="session-history-panel" *ngIf="showHistory">
+        <div class="session-history-header">
+          <span>Past conversations</span>
+          <span class="session-count">{{ sessionList.length }}</span>
+        </div>
+        <div class="session-list">
+          <button
+            *ngFor="let s of sessionList"
+            class="session-item"
+            [class.session-item-active]="s.id === sessionId"
+            (click)="switchSession(s.id)"
+          >
+            <div class="session-item-body">
+              <div class="session-item-title">{{ s.title }}</div>
+              <div class="session-item-date">{{ formatSessionDate(s.updatedAt) }}</div>
+            </div>
+            <button class="session-delete-btn" (click)="deleteSession(s.id, $event)" title="Delete">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14H6L5 6"/>
+                <path d="M10 11v6M14 11v6"/>
+                <path d="M9 6V4h6v2"/>
+              </svg>
+            </button>
+          </button>
+          <div class="session-empty" *ngIf="sessionList.length === 0">
+            No previous chats
+          </div>
+        </div>
+      </div>
+
+      <!-- Message list (hidden when history is open) -->
+      <div class="chat-history" #chatScroll *ngIf="!showHistory">
+        <ng-container *ngFor="let msg of messages">
+          <!-- User message -->
+          <div class="msg-row user-row" *ngIf="msg.isUser">
+            <div class="msg-label">{{ username }}</div>
+            <div class="msg-bubble user-bubble">{{ msg.text }}</div>
+          </div>
+
+          <!-- Agent message -->
+          <div class="msg-row agent-row" *ngIf="!msg.isUser">
+            <div class="agent-avatar">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1
+                         7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2
+                         2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1
+                         1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0
+                         0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5
+                         18 2.5 2.5 0 0 0 10 15.5 2.5 2.5 0 0 0 7.5 13m9
+                         0A2.5 2.5 0 0 0 14 15.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5
+                         0 0 0 2.5-2.5A2.5 2.5 0 0 0 16.5 13Z"/>
+              </svg>
+            </div>
+            <div class="agent-body">
+              <div class="msg-label agent-label">Agent</div>
+              <div class="msg-bubble agent-bubble" [innerHTML]="msg.html"></div>
+            </div>
+          </div>
+        </ng-container>
+
+        <!-- Loading indicator -->
+        <div class="msg-row agent-row" *ngIf="isChatLoading">
+          <div class="agent-avatar">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1
+                       7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2
+                       2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1
+                       1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0
+                       0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5
+                       18 2.5 2.5 0 0 0 10 15.5 2.5 2.5 0 0 0 7.5 13m9
+                       0A2.5 2.5 0 0 0 14 15.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5
+                       0 0 0 2.5-2.5A2.5 2.5 0 0 0 16.5 13Z"/>
+            </svg>
+          </div>
+          <div class="agent-body">
+            <div class="msg-label agent-label">Agent</div>
+            <div class="msg-bubble agent-bubble loading-bubble">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input (hidden when history is open) -->
+      <div class="chat-input-area" *ngIf="!showHistory">
+        <input
+          type="text"
+          class="chat-input"
+          placeholder="Ask about your data..."
+          [(ngModel)]="chatQuery"
+          (keyup.enter)="sendChat()"
+          [disabled]="isChatLoading"
+        />
+        <button class="send-btn" (click)="sendChat()"
+                [disabled]="isChatLoading || !chatQuery.trim()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ── Floating Action Button ──────────────────────────────────────── -->
+  <button class="chat-fab" (click)="toggleChat()"
+          [class.fab-hidden]="isChatOpen"
+          aria-label="Open AI Chat">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+    <span class="fab-label">AI Agent</span>
+  </button>
+
 </div>

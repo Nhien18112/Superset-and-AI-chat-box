@@ -93,16 +93,23 @@ services:
     build: ./python-workers
     container_name: vdt_python_workers
     restart: always
-    ports:
-      - "8000:8000"
+    # Port 8000 is NOT exposed to the host — only reachable by other containers on this network
     environment:
       - SUPERSET_URL=http://superset:8088
       - SUPERSET_USERNAME=admin
       - SUPERSET_PASSWORD=admin
+      - POSTGRES_URL=postgresql://admin:adminpassword@postgres:5432/vdt_db
       - CODEX_API_KEY=${CODEX_API_KEY}
       - CODEX_BASE_URL=${CODEX_BASE_URL}
+      - CODEX_MODEL=${CODEX_MODEL:-gpt-5.4}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      # Browser-facing backend URL used to build CSV download links
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-http://localhost:8080}
     depends_on:
       superset:
+        condition: service_started
+      redis:
         condition: service_started
 
   # ==========================================
@@ -122,10 +129,16 @@ services:
       # Lấy API Key từ file .env
       CODEX_API_KEY: ${CODEX_API_KEY}
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       # URL để Backend gọi Superset xử lý RLS
-      SUPERSET_URL: http://superset:8088 
+      SUPERSET_URL: http://superset:8088
+      # Redis (shared with the Python worker) for short-lived CSV export storage
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       postgres:
+        condition: service_started
+      redis:
         condition: service_started
 
   # ==========================================

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel
 import requests
 import json
@@ -16,6 +16,12 @@ app = FastAPI(title="Superset Automation Worker")
 SUPERSET_URL = os.getenv("SUPERSET_URL", "http://localhost:8088")
 SUPERSET_USERNAME = os.getenv("SUPERSET_USERNAME", "admin")
 SUPERSET_PASSWORD = os.getenv("SUPERSET_PASSWORD", "admin")
+
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+
+def require_internal_key(x_internal_api_key: str = Header(...)):
+    if not INTERNAL_API_KEY or x_internal_api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 class DashboardRequest(BaseModel):
     dataset_id: int
@@ -196,7 +202,7 @@ class SupersetClient:
         return dashboard_id
 
 @app.post("/api/create-dashboard")
-def create_dashboard_endpoint(request: DashboardRequest):
+def create_dashboard_endpoint(request: DashboardRequest, _: None = Depends(require_internal_key)):
     """
     Automates the creation of a Dashboard with 3 predefined charts using Superset REST API.
     """
@@ -209,7 +215,6 @@ def create_dashboard_endpoint(request: DashboardRequest):
     # We ignore the dataset_id from the request and automatically find/create the 'fact_orders' dataset
     dataset_id = client.get_or_create_dataset(db_id, "fact_orders")
     
-    # Common metric definition helper
     def build_metric(col_name: str, aggregate: str, label: str):
         return {
             "expressionType": "SIMPLE",
@@ -217,61 +222,104 @@ def create_dashboard_endpoint(request: DashboardRequest):
             "aggregate": aggregate,
             "label": label
         }
-    
-    # 1. Chart 1: Bar Chart "Total Trading Volume by Ticker"
-    chart1_params = {
-        "metrics": [build_metric("volume", "SUM", "Total Volume")],
-        "groupby": [],
-        "x_axis": "ticker_id",
-        "row_limit": 100
-    }
+
+    # ── Row 0: KPI cards ──
+    kpi1_id = client.create_chart(
+        slice_name="Total Orders",
+        dataset_id=dataset_id,
+        viz_type="big_number_total",
+        params={"metric": build_metric("order_id", "COUNT", "Total Orders"), "subheader": "orders recorded"}
+    )
+    kpi2_id = client.create_chart(
+        slice_name="Total Volume Traded",
+        dataset_id=dataset_id,
+        viz_type="big_number_total",
+        params={"metric": build_metric("volume", "SUM", "Total Volume Traded"), "subheader": "shares traded"}
+    )
+    kpi3_id = client.create_chart(
+        slice_name="Active Tickers",
+        dataset_id=dataset_id,
+        viz_type="big_number_total",
+        params={
+            "metric": {"expressionType": "SQL", "sqlExpression": "COUNT(DISTINCT ticker_id)", "label": "Active Tickers"},
+            "subheader": "distinct tickers"
+        }
+    )
+
+    # ── Row 1: Main charts ──
     chart1_id = client.create_chart(
         slice_name="Total Trading Volume by Ticker",
         dataset_id=dataset_id,
         viz_type="echarts_timeseries_bar",
-        params=chart1_params
+        params={"metrics": [build_metric("volume", "SUM", "Total Volume")], "groupby": [], "x_axis": "ticker_id", "row_limit": 100}
     )
-    
-    # 2. Chart 2: Pie Chart "Order Types Distribution"
-    chart2_params = {
-        "metric": build_metric("order_id", "COUNT", "Count Orders"),
-        "groupby": ["order_type"],
-        "row_limit": 100
-    }
     chart2_id = client.create_chart(
         slice_name="Order Types Distribution",
         dataset_id=dataset_id,
         viz_type="pie",
-        params=chart2_params
+        params={"metric": build_metric("order_id", "COUNT", "Count Orders"), "groupby": ["order_type"], "row_limit": 100}
     )
-    
-    # 3. Chart 3: Line Chart "Trading Volume over Time"
-    chart3_params = {
-        "metrics": [build_metric("volume", "SUM", "Total Volume")],
-        "groupby": [],
-        "x_axis": "order_date",
-        "time_grain_sqla": "P1D",
-        "row_limit": 100
-    }
     chart3_id = client.create_chart(
         slice_name="Trading Volume over Time",
         dataset_id=dataset_id,
         viz_type="echarts_timeseries_line",
-        params=chart3_params
+        params={"metrics": [build_metric("volume", "SUM", "Total Volume")], "groupby": [], "x_axis": "order_date", "time_grain_sqla": "P1D", "row_limit": 100}
     )
 
-    # 4. Create Dashboard
-    dashboard_id = client.create_dashboard(
-        dashboard_title=request.dashboard_title,
-        charts=[
-            {"id": chart1_id, "name": "Total Trading Volume by Ticker"},
-            {"id": chart2_id, "name": "Order Types Distribution"},
-            {"id": chart3_id, "name": "Trading Volume over Time"}
-        ]
-    )
+    # ── Build two-row dashboard layout ──
+    import uuid
 
-    # 5. Link Charts to Dashboard (Fixes 'no chart definition associated' error)
-    for cid in [chart1_id, chart2_id, chart3_id]:
+    kpi_charts  = [
+        {"id": kpi1_id,    "name": "Total Orders"},
+        {"id": kpi2_id,    "name": "Total Volume Traded"},
+        {"id": kpi3_id,    "name": "Active Tickers"},
+    ]
+    main_charts = [
+        {"id": chart1_id,  "name": "Total Trading Volume by Ticker"},
+        {"id": chart2_id,  "name": "Order Types Distribution"},
+        {"id": chart3_id,  "name": "Trading Volume over Time"},
+    ]
+
+    position_json = {
+        "DASHBOARD_VERSION_KEY": "v2",
+        "ROOT_ID":  {"type": "ROOT",  "id": "ROOT_ID",  "children": ["GRID_ID"]},
+        "GRID_ID":  {"type": "GRID",  "id": "GRID_ID",  "children": ["ROW_0", "ROW_1"], "parents": ["ROOT_ID"]},
+        "ROW_0": {"type": "ROW", "id": "ROW_0", "children": [], "parents": ["ROOT_ID", "GRID_ID"], "meta": {"background": "BACKGROUND_TRANSPARENT"}},
+        "ROW_1": {"type": "ROW", "id": "ROW_1", "children": [], "parents": ["ROOT_ID", "GRID_ID"], "meta": {"background": "BACKGROUND_TRANSPARENT"}},
+    }
+
+    for kpi in kpi_charts:
+        lid = f"CHART-{uuid.uuid4().hex[:8]}"
+        position_json[lid] = {
+            "type": "CHART", "id": lid, "children": [],
+            "parents": ["ROOT_ID", "GRID_ID", "ROW_0"],
+            "meta": {"width": 4, "height": 16, "chartId": kpi["id"], "sliceName": kpi["name"]}
+        }
+        position_json["ROW_0"]["children"].append(lid)
+
+    for chart in main_charts:
+        lid = f"CHART-{uuid.uuid4().hex[:8]}"
+        position_json[lid] = {
+            "type": "CHART", "id": lid, "children": [],
+            "parents": ["ROOT_ID", "GRID_ID", "ROW_1"],
+            "meta": {"width": 4, "height": 50, "chartId": chart["id"], "sliceName": chart["name"]}
+        }
+        position_json["ROW_1"]["children"].append(lid)
+
+    dash_res = client.session.post(f"{SUPERSET_URL}/api/v1/dashboard/", json={
+        "dashboard_title": request.dashboard_title,
+        "published": True,
+        "position_json": json.dumps(position_json)
+    })
+    if dash_res.status_code != 201:
+        logger.error(f"Failed to create dashboard: {dash_res.text}")
+        raise HTTPException(status_code=500, detail="Failed to create dashboard")
+    dashboard_id = dash_res.json().get("id")
+    logger.info(f"Dashboard created with ID: {dashboard_id}")
+
+    # Link all charts to the dashboard
+    all_chart_ids = [kpi1_id, kpi2_id, kpi3_id, chart1_id, chart2_id, chart3_id]
+    for cid in all_chart_ids:
         res = client.session.put(f"{SUPERSET_URL}/api/v1/chart/{cid}", json={"dashboards": [dashboard_id]})
         if res.status_code != 200:
             logger.warning(f"Failed to link chart {cid} to dashboard {dashboard_id}: {res.text}")
@@ -318,10 +366,11 @@ def create_dashboard_endpoint(request: DashboardRequest):
 class ChatRequest(BaseModel):
     query: str
     username: str
+    role: str = ""
     history: list = []
 
 @app.post("/api/chat")
-def chat_endpoint(request: ChatRequest):
+def chat_endpoint(request: ChatRequest, _: None = Depends(require_internal_key)):
     """
     Connects to OpenAI API (Codex), binds tools from mcp_superset.py,
     and executes tool calls locally to fetch data or create charts in Superset.
@@ -329,7 +378,7 @@ def chat_endpoint(request: ChatRequest):
     import os
     import json
     import openai
-    from mcp_superset import get_superset_schema, query_dashboard_data, create_custom_chart, get_user_dashboards_and_charts, create_custom_dashboard
+    from mcp_superset import get_superset_schema, query_dashboard_data, create_custom_chart, get_user_dashboards_and_charts, create_custom_dashboard, get_dashboard_by_name, add_charts_to_existing_dashboard, delete_chart, delete_dashboard, summarize_chart, detect_anomalies, export_chart_csv, change_chart_type
     
     api_key = os.getenv("CODEX_API_KEY")
     base_url = os.getenv("CODEX_BASE_URL")
@@ -343,18 +392,98 @@ def chat_endpoint(request: ChatRequest):
     )
     
     system_instruction = (
-        f"You are a helpful Data Agent. The current user is {request.username}. "
-        "Use tools to answer questions, explain existing charts, or create custom dashboards. "
-        "To explain charts, use get_user_dashboards_and_charts to see what they mean. "
-        "To create a dashboard, first use create_custom_chart for each chart, then use create_custom_dashboard with the returned chart IDs. "
-        "IMPORTANT: When specifying metrics in create_custom_chart, you MUST use the Ad-hoc Metric JSON format, e.g., "
-        "{'expressionType': 'SQL', 'sqlExpression': 'AVG(price)', 'label': 'Average Price'} or "
-        "{'expressionType': 'SIMPLE', 'column': {'column_name': 'price'}, 'aggregate': 'AVG', 'label': 'Avg Price'}. Do NOT pass raw strings like 'avg_price'. "
-        "IMPORTANT: The ONLY valid `viz_type` values for charts are: 'echarts_timeseries_line', 'echarts_timeseries_bar', 'pie', 'table', 'big_number'. Do NOT use 'line' or 'bar'. "
-        "IMPORTANT: If you create a chart, you MUST include the exact text [OPEN_CHART:<id>] (e.g. [OPEN_CHART:28]) in your final reply to automatically show it to the user. "
-        "If you create a dashboard, you MUST include the exact text [OPEN_DASHBOARD:<id>] in your final reply. "
-        "Do NOT guess column names; always get the schema first. "
-        "IMPORTANT: You do not need to provide user_id to any tools; it is injected automatically."
+        f"You are a helpful Data Agent. The current user is '{request.username}'.\n\n"
+
+        "## DECISION: query data vs. create a chart\n"
+        "Choose based on the user's intent:\n"
+        "  - User wants a NUMBER / VALUE / ANSWER  →  use query_dashboard_data, then state the result in plain text. Do NOT create a chart.\n"
+        "  - User explicitly says 'create a chart', 'make a chart', 'plot', 'visualize', 'graph'  →  use create_custom_chart.\n"
+        "  - User wants a DASHBOARD  →  create charts first, then create/update the dashboard.\n\n"
+
+        "## Chart and dashboard discovery\n"
+        "  - get_user_dashboards_and_charts returns ALL charts the user can see — both their own and\n"
+        "    system charts on shared dashboards (e.g. the Automated Market Overview).\n"
+        "  - Each chart entry has a 'can_modify' flag:\n"
+        "      can_modify=true  → owned by this user: can delete, change type, add to dashboards.\n"
+        "      can_modify=false → on a shared/system dashboard (admin-owned): can be summarized,\n"
+        "                         analyzed with detect_anomalies, and exported as CSV, but NOT\n"
+        "                         deleted or type-changed.\n"
+        "  - Always call get_user_dashboards_and_charts first when the user refers to a chart by name.\n"
+        "    Match on 'slice_name' (case-insensitive, partial match is fine).\n\n"
+
+        "## WORKFLOW — answering a data question (values / totals / counts)\n"
+        "  1. Call get_superset_schema to know the available columns.\n"
+        "  2. Call query_dashboard_data with the correct metrics and groupby.\n"
+        "  3. Read the returned rows and write a clear, concise answer with the actual numbers.\n"
+        "  Do NOT call create_custom_chart for this path.\n\n"
+
+        "## WORKFLOW — adding charts to an EXISTING dashboard\n"
+        "  1. Call create_custom_chart for each new chart.\n"
+        "  2. Call get_dashboard_by_name with the exact title to get its ID.\n"
+        "  3. Call add_charts_to_existing_dashboard with the dashboard ID and new chart IDs.\n"
+        "  Never call create_custom_dashboard when the user says 'existing dashboard' or 'add to'.\n\n"
+
+        "## WORKFLOW — creating a BRAND-NEW dashboard\n"
+        "  1. Call create_custom_chart for each chart.\n"
+        "  2. Call create_custom_dashboard with the new title and all chart IDs.\n\n"
+
+        "## WORKFLOW — explaining / summarizing a chart (data storytelling)\n"
+        "  1. If you don't have the chart id, call get_user_dashboards_and_charts to find it by name.\n"
+        "  2. Call summarize_chart with the chart id.\n"
+        "  3. The returned rows are already filtered to what this user may see. Write a concise analyst "
+        "summary: lead with the headline number, then the highest/lowest values, any trend over time, "
+        "and any outliers. Always cite the actual numbers; never invent data.\n\n"
+
+        "## WORKFLOW — finding anomalies / outliers in a chart\n"
+        "  1. If you don't have the chart id, call get_user_dashboards_and_charts to find it.\n"
+        "  2. Call detect_anomalies with the chart id.\n"
+        "  3. Report what it found: if anomaly_count is 0 say there are no statistical outliers; "
+        "otherwise explain each spike/drop with its value, location, and expected range.\n\n"
+
+        "## WORKFLOW — exporting a chart's data as CSV\n"
+        "  1. Find the chart id, then call export_chart_csv.\n"
+        "  2. The tool returns a download_url. Give the user a clickable Markdown link "
+        "[Download CSV](download_url) and mention it expires in 15 minutes — do not paste the raw rows. "
+        "  3. If the tool instead returns inline 'csv' (download storage unavailable), show that in a "
+        "fenced ```csv code block.\n\n"
+
+        "## WORKFLOW — changing a chart's visualization type\n"
+        "  1. Find the chart id, then call change_chart_type with the new viz_type.\n"
+        "  2. If it reports the change was reverted, the chart still has its old type — tell the user "
+        "and suggest a type that suits the data. On success emit [OPEN_CHART:<id>].\n\n"
+
+        "## WORKFLOW — deleting a chart or dashboard\n"
+        "  1. Call get_user_dashboards_and_charts to look up the id of the chart/dashboard the user means "
+        "(match on the name they gave). For a dashboard you may also use get_dashboard_by_name.\n"
+        "  2. If exactly one item matches, call delete_chart or delete_dashboard with that id.\n"
+        "  3. If several items match the name, list them with their ids and ask the user which one.\n"
+        "  4. Users can only delete items they own; relay any permission-denied message plainly.\n\n"
+
+        "## Chart creation rules\n"
+        "  - Metrics must be Ad-hoc Metric JSON: "
+        "{'expressionType': 'SQL', 'sqlExpression': 'SUM(volume)', 'label': 'Total Volume'} or "
+        "{'expressionType': 'SIMPLE', 'column': {'column_name': 'volume'}, 'aggregate': 'SUM', 'label': 'Total Volume'}. "
+        "Never pass raw strings for metrics.\n"
+        "  - Valid viz_type values: 'echarts_timeseries_line', 'echarts_timeseries_bar', 'pie', 'table', 'big_number_total'. "
+        "Never use 'line', 'bar', or 'big_number'.\n"
+        "  - For 'echarts_timeseries_bar' and 'echarts_timeseries_line' you MUST set 'x_axis' to the column for the "
+        "horizontal axis (e.g. x_axis='order_type' for orders-by-status, x_axis='order_date' for trends over time). "
+        "Put the main dimension in 'x_axis', NOT in 'groupby'. Leaving x_axis empty causes a 'Datetime column not "
+        "provided' error. Only set 'time_grain_sqla' when x_axis is a date/time column.\n"
+        "  - For categorical breakdowns (counts per category) prefer viz_type='pie' or 'table', or "
+        "'echarts_timeseries_bar' with x_axis set to that category column.\n"
+        "  - Do NOT include 'orderby', 'timeseries_limit_metric', 'series_limit_metric', or 'order_desc' in chart_params.\n"
+        "  - create_custom_chart verifies the chart renders before returning. If it returns a "
+        "rollback/error message, the chart was NOT created — read the Superset error, fix the "
+        "definition (column names, viz_type, x_axis), and call create_custom_chart again. Only claim "
+        "success and emit [OPEN_CHART:<id>] when it returns a real chart id.\n"
+        "  - After creating a chart include [OPEN_CHART:<id>] in your reply.\n"
+        "  - After creating or updating a dashboard include [OPEN_DASHBOARD:<id>].\n\n"
+
+        "## General rules\n"
+        "  - Do NOT guess column names — call get_superset_schema first if unsure.\n"
+        "  - You do not need to provide user_id to any tools; it is injected automatically.\n"
+        "  - Keep answers concise. For data questions, lead with the number, then add context."
     )
     
     # Format messages for OpenAI
@@ -412,7 +541,7 @@ def chat_endpoint(request: ChatRequest):
             "type": "function",
             "function": {
                 "name": "create_custom_dashboard",
-                "description": "Creates a new Superset Dashboard containing the specified chart IDs.",
+                "description": "Creates a brand-new Superset Dashboard containing the specified chart IDs. Use only when the user explicitly asks to create a NEW dashboard.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -426,6 +555,128 @@ def chat_endpoint(request: ChatRequest):
                     "required": ["dashboard_title", "chart_ids"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_dashboard_by_name",
+                "description": "Finds an existing dashboard by its title and returns its ID and the IDs of all charts currently on it. Use this before adding charts to an existing dashboard.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "dashboard_title": {"type": "string", "description": "The exact title of the dashboard to find."}
+                    },
+                    "required": ["dashboard_title"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "add_charts_to_existing_dashboard",
+                "description": "Appends new charts to an existing dashboard without removing or changing any current charts. Use this when the user wants to add charts to an existing dashboard.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "dashboard_id": {"type": "integer", "description": "The integer ID of the existing dashboard (get this from get_dashboard_by_name)."},
+                        "new_chart_ids": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of chart IDs to append to the dashboard."
+                        }
+                    },
+                    "required": ["dashboard_id", "new_chart_ids"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "summarize_chart",
+                "description": "Fetches the data behind an existing chart (with the user's row-level security applied) so you can explain its trends and key findings in natural language. Get the chart id from get_user_dashboards_and_charts first.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "chart_id": {"type": "integer", "description": "The integer ID of the chart to summarize."}
+                    },
+                    "required": ["chart_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "detect_anomalies",
+                "description": "Analyzes an existing chart's data (with the user's row-level security applied) and flags statistical outliers — spikes or drops — using the IQR method. Use when the user asks about anomalies, outliers, unusual values, or sudden changes. Get the chart id from get_user_dashboards_and_charts first.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "chart_id": {"type": "integer", "description": "The integer ID of the chart to analyze."}
+                    },
+                    "required": ["chart_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "export_chart_csv",
+                "description": "Exports an existing chart's data as raw CSV text (row-level security applied) and returns it inline for the user to copy. Use when the user asks to export, download, or get the raw data of a chart. Get the chart id from get_user_dashboards_and_charts first.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "chart_id": {"type": "integer", "description": "The integer ID of the chart to export."}
+                    },
+                    "required": ["chart_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "change_chart_type",
+                "description": "Changes the visualization type of an existing chart the user owns (e.g. switch a bar chart to a pie chart). The chart is re-verified and reverted if the new type fails to render. Get the chart id from get_user_dashboards_and_charts first.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "chart_id": {"type": "integer", "description": "The integer ID of the chart to modify."},
+                        "new_viz_type": {
+                            "type": "string",
+                            "description": "The new viz_type.",
+                            "enum": ["echarts_timeseries_line", "echarts_timeseries_bar", "pie", "table", "big_number_total"]
+                        }
+                    },
+                    "required": ["chart_id", "new_viz_type"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_chart",
+                "description": "Deletes a chart the user owns. Get the chart id from get_user_dashboards_and_charts first. Only the owner can delete it.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "chart_id": {"type": "integer", "description": "The integer ID of the chart to delete."}
+                    },
+                    "required": ["chart_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_dashboard",
+                "description": "Deletes a dashboard the user owns (charts on it are kept). Get the dashboard id from get_user_dashboards_and_charts or get_dashboard_by_name first. Only the owner can delete it.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "dashboard_id": {"type": "integer", "description": "The integer ID of the dashboard to delete."}
+                    },
+                    "required": ["dashboard_id"]
+                }
+            }
         }
     ]
     
@@ -435,7 +686,7 @@ def chat_endpoint(request: ChatRequest):
             for attempt in range(max_retries):
                 try:
                     return client.chat.completions.create(
-                        model='gpt-5.4-mini',
+                        model=os.getenv("CODEX_MODEL", "gpt-5.4"),
                         messages=msgs,
                         tools=tools,
                         temperature=0.1
@@ -464,6 +715,7 @@ def chat_endpoint(request: ChatRequest):
                         result = get_superset_schema()
                     elif name == "query_dashboard_data":
                         args["user_id"] = request.username
+                        args["user_role"] = request.role
                         result = query_dashboard_data(**args)
                     elif name == "create_custom_chart":
                         args["user_id"] = request.username
@@ -474,6 +726,31 @@ def chat_endpoint(request: ChatRequest):
                     elif name == "create_custom_dashboard":
                         args["user_id"] = request.username
                         result = create_custom_dashboard(**args)
+                    elif name == "get_dashboard_by_name":
+                        result = get_dashboard_by_name(**args)
+                    elif name == "add_charts_to_existing_dashboard":
+                        result = add_charts_to_existing_dashboard(**args)
+                    elif name == "summarize_chart":
+                        args["user_id"] = request.username
+                        args["user_role"] = request.role
+                        result = summarize_chart(**args)
+                    elif name == "detect_anomalies":
+                        args["user_id"] = request.username
+                        args["user_role"] = request.role
+                        result = detect_anomalies(**args)
+                    elif name == "export_chart_csv":
+                        args["user_id"] = request.username
+                        args["user_role"] = request.role
+                        result = export_chart_csv(**args)
+                    elif name == "change_chart_type":
+                        args["user_id"] = request.username
+                        result = change_chart_type(**args)
+                    elif name == "delete_chart":
+                        args["user_id"] = request.username
+                        result = delete_chart(**args)
+                    elif name == "delete_dashboard":
+                        args["user_id"] = request.username
+                        result = delete_dashboard(**args)
                     else:
                         result = f"Unknown tool {name}"
                 except Exception as e:

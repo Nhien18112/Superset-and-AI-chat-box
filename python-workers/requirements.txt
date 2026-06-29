@@ -5,3 +5,5 @@ requests
 mcp[cli]
 openai==1.55.3
 httpx
+psycopg2-binary
+redis

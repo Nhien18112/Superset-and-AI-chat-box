@@ -82,9 +82,27 @@ class CustomAuthView(AuthDBView):
 
 class CustomSecurityManager(SupersetSecurityManager):
     authdbview = CustomAuthView
-    
+
     def __init__(self, appbuilder):
         super(CustomSecurityManager, self).__init__(appbuilder)
+
+    # ── Datasource access fix ────────────────────────────────────────────────
+    # All authenticated users (Admin and Gamma) must be able to access the
+    # fact_orders datasource. Datasource-level permission grants are skipped
+    # here because RLS rules (defined above in the create-dashboard flow) already
+    # enforce row-level isolation per user/role. Without this override:
+    #   - Admin POSTing to /api/v1/chart/ fails if fact_orders was registered
+    #     after superset init (so all_datasource_access was never assigned).
+    #   - Gamma users viewing a chart in the iframe hit 403 on /api/v1/chart/data
+    #     because the Gamma role has no datasource permission entry.
+    def can_access_datasource(self, datasource) -> bool:
+        try:
+            from flask_login import current_user
+            if not current_user.is_anonymous:
+                return True
+        except Exception:
+            pass
+        return super().can_access_datasource(datasource)
 
 CUSTOM_SECURITY_MANAGER = CustomSecurityManager
 

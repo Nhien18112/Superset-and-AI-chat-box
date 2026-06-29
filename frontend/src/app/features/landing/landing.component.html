@@ -1,0 +1,100 @@
+<div class="landing-wrapper">
+  <div class="bg-layer"></div>
+  <div class="grid-overlay"></div>
+
+  <!-- Nav -->
+  <nav class="top-nav">
+    <div class="nav-brand">
+      <span class="brand-tag">VDT</span>
+      <span class="brand-name">Data Platform</span>
+    </div>
+    <button class="nav-login-btn" (click)="goToLogin()">Sign In</button>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badge">Enterprise Data Intelligence</div>
+      <h1 class="hero-title">
+        Query Market Data<br>
+        <span class="hero-accent">in Plain Language</span>
+      </h1>
+      <p class="hero-subtitle">
+        Ask questions about stock transactions in Vietnamese or English. The platform
+        translates your intent into SQL, enforces Row-Level Security per user, and
+        returns charts — all without writing a single query.
+      </p>
+      <div class="hero-actions">
+        <button class="cta-primary" (click)="goToLogin()">Get Started</button>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="terminal-card">
+        <div class="terminal-bar">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+          <span class="terminal-title">Data Agent</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-line user-line">
+            <span class="prompt">investor_a&#64;vdt ~$</span>
+            <span class="command">Tổng khối lượng giao dịch theo mã cổ phiếu?</span>
+          </div>
+          <div class="terminal-line agent-line">
+            <span class="prompt">agent &gt;</span>
+            <span class="response">Fetching data for <em>investor_a</em> with RLS applied...</span>
+          </div>
+          <div class="terminal-line agent-line">
+            <span class="prompt">agent &gt;</span>
+            <span class="response">SSI: 12,400 | FPT: 8,900 | VCB: 6,200</span>
+          </div>
+          <div class="terminal-line agent-line">
+            <span class="prompt">agent &gt;</span>
+            <span class="response chart-hint">[Chart created] Opening visualization...</span>
+          </div>
+          <div class="terminal-cursor"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+        </svg>
+      </div>
+      <h3>AI Text-to-SQL Agent</h3>
+      <p>Agentic loop using tool calls to fetch schema, query data, and build custom charts — no manual SQL required.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
+        </svg>
+      </div>
+      <h3>Native Row-Level Security</h3>
+      <p>Investors see only their own trades. Brokers see their clients' portfolios. RLS is enforced at the Superset layer, not in the LLM.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+        </svg>
+      </div>
+      <h3>Auto-generated Dashboards</h3>
+      <p>Base dashboards are built automatically from the stock dataset via the Superset REST API. No manual setup required.</p>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="landing-footer">
+    <span>VDT Data Platform — Viettel Software</span>
+  </footer>
+</div>

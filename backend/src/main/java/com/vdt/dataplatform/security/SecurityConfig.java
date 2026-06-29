@@ -31,6 +31,10 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> 
                 auth.requestMatchers("/api/auth/**").permitAll()
+                    // CSV download links are opened directly by the browser (no JWT header),
+                    // so this is a public capability URL: access is gated by the unguessable
+                    // token + 15-minute TTL, and the data is already RLS-filtered at export time.
+                    .requestMatchers("/api/exports/**").permitAll()
                     .anyRequest().authenticated()
             );
 

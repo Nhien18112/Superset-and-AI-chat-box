@@ -26,6 +26,9 @@ public class SupersetService {
     @Value("${superset.automation-worker-url}")
     private String automationWorkerUrl;
 
+    @Value("${python-worker.internal-api-key}")
+    private String internalApiKey;
+
     private String cachedDashboardUuid = null;
     private Integer cachedDatasetId = null;
 
@@ -69,6 +72,7 @@ public class SupersetService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Internal-Api-Key", internalApiKey);
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
 
